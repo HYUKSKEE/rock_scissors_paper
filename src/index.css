@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* ───────── 디자인 토큰 (Tailwind 테마 + CSS 변수) ───────── */
+@theme {
+  --font-display: "Jua", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+
+  --color-ink: #05070d;          /* 배경 블랙 */
+  --color-night: #0a1228;        /* 카드 바탕 네이비 */
+  --color-navy: #12245a;
+  --color-royal: #2a52d6;
+  --color-sky: #5ec8ff;          /* 하늘색 포인트 */
+  --color-ice: #cdeeff;
+  --color-pink: #ff8fb8;         /* 아주 작은 포인트 (패배/경고용 아님, 장식용) */
+  --color-good: #4fe3a1;
+  --color-bad: #ff7a8a;
+  --color-gold: #ffd76a;
+
+  --radius-blob: 1.75rem;
+  --animate-bounce-soft: bounce-soft 1.8s ease-in-out infinite;
+  --animate-pop: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-shake: shake 0.5s ease-in-out infinite;
+  --animate-float: float 3.6s ease-in-out infinite;
+
+  @keyframes bounce-soft { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
+  @keyframes pop { 0% { transform: scale(0.4); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
+  @keyframes shake { 0%,100% { transform: translateY(0) rotate(-6deg) } 50% { transform: translateY(-14px) rotate(6deg) } }
+  @keyframes float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
+}
+
+:root {
+  --candy-sky: #5ec8ff;  --candy-sky-edge: #1f7fd0;
+  --candy-royal: #3f6bff; --candy-royal-edge: #1b3aa8;
+  --candy-ghost: #1a2a5e; --candy-ghost-edge: #0a1535;
+  --candy-danger: #ff7a8a; --candy-danger-edge: #b93a50;
+}
+
+html, body, #root { min-height: 100%; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--color-ink);
+  color: var(--color-ice);
+  font-family: var(--font-display);
+  overflow-x: hidden;               /* 가로 스크롤 금지 */
+  -webkit-tap-highlight-color: transparent;
+}
+/* 은은한 블루 글로우 배경 */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60% 40% at 15% 0%, rgba(63,107,255,.28), transparent 70%),
+    radial-gradient(50% 35% at 100% 20%, rgba(94,200,255,.16), transparent 70%),
+    var(--color-ink);
+}
+
+/* ───────── 두툼한 3D 캔디 버튼 ───────── */
+.btn-candy {
+  --face: var(--candy-sky); --edge: var(--candy-sky-edge); --text: #04122b;
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  min-height: 3.5rem; padding: 0 1.75rem; border: 0; border-radius: 9999px; cursor: pointer;
+  font: inherit; font-size: 1.2rem; color: var(--text);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--face) 70%, white) 0%, var(--face) 55%);
+  box-shadow: 0 7px 0 var(--edge), 0 14px 22px rgba(0,0,0,.45), inset 0 3px 0 rgba(255,255,255,.55);
+  transform: translateY(0); transition: transform .08s ease, box-shadow .08s ease, filter .15s;
+  touch-action: manipulation; user-select: none;
+}
+.btn-candy:hover:not(:disabled) { filter: brightness(1.06); }
+.btn-candy:active:not(:disabled) { transform: translateY(6px); box-shadow: 0 1px 0 var(--edge), 0 4px 8px rgba(0,0,0,.4), inset 0 3px 0 rgba(255,255,255,.45); }
+.btn-candy:disabled { opacity: .5; cursor: not-allowed; filter: grayscale(.4); }
+.btn-candy:focus-visible { outline: 3px solid var(--color-ice); outline-offset: 4px; }
+.btn-candy[data-variant="royal"]  { --face: var(--candy-royal);  --edge: var(--candy-royal-edge);  --text: #fff; }
+.btn-candy[data-variant="ghost"]  { --face: var(--candy-ghost);  --edge: var(--candy-ghost-edge);  --text: var(--color-ice); }
+.btn-candy[data-variant="danger"] { --face: var(--candy-danger); --edge: var(--candy-danger-edge); --text: #3a0510; }
+.btn-candy[data-size="sm"] { min-height: 2.6rem; padding: 0 1.1rem; font-size: 1rem; box-shadow: 0 5px 0 var(--edge), 0 9px 14px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.5); }
+.btn-candy[data-size="sm"]:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 var(--edge), inset 0 2px 0 rgba(255,255,255,.4); }
+.btn-candy[data-block="true"] { width: 100%; }
+
+/* ───────── 점토/젤리 카드 ───────── */
+.card-jelly {
+  border-radius: var(--radius-blob);
+  background: linear-gradient(160deg, rgba(42,82,214,.30), rgba(10,18,40,.95) 55%);
+  border: 2px solid rgba(94,200,255,.22);
+  box-shadow: 0 10px 0 rgba(4,10,30,.9), 0 22px 34px rgba(0,0,0,.5), inset 0 2px 0 rgba(255,255,255,.12);
+}
+
+.input-jelly {
+  width: 100%; min-height: 3.25rem; padding: 0 1.1rem; border-radius: 1.25rem;
+  font: inherit; font-size: 1.1rem; color: var(--color-ice);
+  background: #060d22; border: 2px solid rgba(94,200,255,.3);
+  box-shadow: inset 0 4px 8px rgba(0,0,0,.55);
+}
+.input-jelly::placeholder { color: rgba(205,238,255,.35); }
+.input-jelly:focus { outline: none; border-color: var(--color-sky); box-shadow: inset 0 4px 8px rgba(0,0,0,.55), 0 0 0 4px rgba(94,200,255,.2); }
+
+/* 동작 최소화 설정 존중 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
