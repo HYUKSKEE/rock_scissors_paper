@@ -44,6 +44,7 @@ supabase/migrations/
   20260101000000_schema.sql     테이블 · 공개용 뷰 · RLS · 권한 · Realtime
   20260101000100_functions.sql  RPC (create_game, join_game, play_round, close_game, verify_admin, set_prize_paths)
   20260101000200_storage.sql    비공개 버킷 `prizes` + Storage 정책
+  20260101000300_storage_creator_select.sql  생성자 업로드(INSERT…RETURNING)용 SELECT 정책 (open 상태에서만)
 src/
   lib/       supabase 클라이언트(익명 로그인), RPC 래퍼, 순위 로직, 에러 메시지
   hooks/     세션, 게임/참가자(Realtime) 훅
@@ -80,6 +81,7 @@ tests/       db.test.ts(실제 Postgres 규칙 검증), rank.test.ts
 1. `supabase/migrations/20260101000000_schema.sql`
 2. `supabase/migrations/20260101000100_functions.sql`
 3. `supabase/migrations/20260101000200_storage.sql`
+4. `supabase/migrations/20260101000300_storage_creator_select.sql`
 
 (Supabase CLI를 쓴다면 `supabase link --project-ref <ref>` 후 `supabase db push` 로 한 번에 적용할 수도 있습니다.)
 

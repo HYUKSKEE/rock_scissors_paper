@@ -273,6 +273,17 @@ describe('기프티콘 이미지 권한', () => {
     expect(await asErr(CREATOR, `insert into storage.objects (bucket_id,name) values ('prizes',$1)`, ['nope/abc'])).toMatch(/row-level security/)
   })
 
+  it('생성자 업로드는 INSERT ... RETURNING / upsert(실제 Storage API 방식)로도 통과한다', async () => {
+    const g = await newGame({ winners: 1 })
+    const name = key(g.game_id, 1)
+    const rows = await as(CREATOR, `insert into storage.objects (bucket_id, name, owner) values ('prizes', $1, auth.uid()) returning name`, [name])
+    expect(rows).toEqual([{ name }])
+    await as(CREATOR, `insert into storage.objects (bucket_id, name, owner) values ('prizes', $1, auth.uid())
+      on conflict (id) do update set owner = excluded.owner returning name`, [name])
+    // 다른 사용자는 여전히 불가
+    expect(await asErr(A, `insert into storage.objects (bucket_id, name) values ('prizes',$1) returning name`, [key(g.game_id, 1)])).toMatch(/row-level security/)
+  })
+
   it('이미지는 해당 순위 당첨자 본인만 읽을 수 있다', async () => {
     const g = await newGame({ winners: 2 })
     for (const rank of [1, 2]) {
