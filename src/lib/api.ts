@@ -12,6 +12,7 @@ export interface Game {
   created_at: string
   closed_at: string | null
   player_count: number
+  max_players: number | null
 }
 export interface Player extends RankablePlayer {
   game_id: string
@@ -31,6 +32,8 @@ export interface RoundOutcome {
   wins: number
   played: number
   finished: boolean
+  /** 이 판으로 게임이 자동 종료됐는지 (최대 인원 전원 완주) */
+  game_closed: boolean
 }
 
 async function wrap<T>(fn: () => PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
@@ -43,10 +46,10 @@ async function wrap<T>(fn: () => PromiseLike<{ data: T | null; error: unknown }>
   }
 }
 
-export async function createGame(title: string, winnerCount: number, rounds: number) {
+export async function createGame(title: string, winnerCount: number, rounds: number, maxPlayers: number | null) {
   await ensureSession()
   return wrap(() =>
-    supabase.rpc('create_game', { p_title: title, p_winner_count: winnerCount, p_rounds: rounds }),
+    supabase.rpc('create_game', { p_title: title, p_winner_count: winnerCount, p_rounds: rounds, p_max_players: maxPlayers }),
   ) as Promise<{ game_id: string; admin_token: string }>
 }
 
@@ -87,6 +90,12 @@ export async function fetchGame(gameId: string): Promise<Game | null> {
 export async function fetchPlayers(gameId: string): Promise<Player[]> {
   await ensureSession()
   return wrap(() => supabase.from('players').select('*').eq('game_id', gameId)) as Promise<Player[]>
+}
+
+/** 생성자 전용: 종료 전에도 전체 참가자 현황을 본다 (참가자에게는 종료 전까지 순위가 공개되지 않는다). */
+export async function fetchAdminPlayers(gameId: string, token: string): Promise<Player[]> {
+  await ensureSession()
+  return wrap(() => supabase.rpc('admin_players', { p_game_id: gameId, p_admin_token: token })) as Promise<Player[]>
 }
 
 export async function fetchWinners(gameId: string): Promise<Winner[]> {

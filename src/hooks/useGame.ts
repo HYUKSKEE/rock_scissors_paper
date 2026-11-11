@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchGame, fetchPlayers, type Game, type Player } from '../lib/api'
+import { fetchAdminPlayers, fetchGame, fetchPlayers, type Game, type Player } from '../lib/api'
 import { toAppError, type AppError } from '../lib/errors'
 import { supabase } from '../lib/supabase'
 import { useSession } from './useSession'
@@ -60,7 +60,27 @@ export function useGame(gameId: string | undefined, pollMs = 8000) {
   }
 }
 
-/** 참가자 목록 + Realtime 구독(변경 즉시 반영) + 안전망용 주기적 재조회. */
+/** 관리자 전용 참가자 현황 (토큰 검증 RPC, 종료 전에도 전체 조회). RLS 때문에 Realtime 대신 주기적으로 조회한다. */
+export function useAdminPlayers(gameId: string | undefined, token: string | null, pollMs = 4000) {
+  const { uid } = useSession()
+  const [players, setPlayers] = useState<Player[]>([])
+
+  useEffect(() => {
+    if (!gameId || !uid || !token) return
+    let alive = true
+    const load = () => fetchAdminPlayers(gameId, token).then((p) => alive && setPlayers(p)).catch(() => {})
+    load()
+    const t = setInterval(load, pollMs)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [gameId, uid, token, pollMs])
+
+  return players
+}
+
+/** 내 참가 정보 (종료 전에는 RLS 때문에 내 행만 보인다) + Realtime 구독(변경 즉시 반영) + 안전망용 주기적 재조회. */
 export function usePlayers(gameId: string | undefined, enabled = true) {
   const { uid } = useSession()
   const [players, setPlayers] = useState<Player[]>([])

@@ -4,6 +4,7 @@ const MESSAGES: Record<string, string> = {
   INVALID_INPUT: '입력값을 다시 확인해주세요.',
   GAME_NOT_FOUND: '존재하지 않는 게임이에요. 링크를 다시 확인해주세요.',
   GAME_CLOSED: '이미 종료된 게임이에요.',
+  GAME_FULL: '참가 인원이 가득 찼어요.',
   NICKNAME_TAKEN: '이미 사용 중인 닉네임이에요. 다른 닉네임을 써주세요.',
   NOT_JOINED: '먼저 닉네임을 입력하고 참가해주세요.',
   ALREADY_FINISHED: '모든 판을 끝냈어요!',

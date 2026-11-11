@@ -17,11 +17,16 @@
    컴퓨터의 선택·승패 판정·전적 기록은 **전부 서버(Postgres 함수 `play_round`)** 에서 합니다. 클라이언트는 자기 선택만 보냅니다.
 3. 순위: **승률(wins / R) 내림차순 → 동률이면 참여 시각(`joined_at`) 오름차순**. R판을 모두 끝낸 사람만 순위에 들어갑니다.
 4. 게임 종료는 관리 링크(admin_token)를 가진 생성자만 할 수 있고, 종료 시 서버가 상위 N명을 당첨자로 확정해 저장합니다. 종료 후 참여·플레이는 불가능합니다.
-5. 결과 페이지에서는 누구나 당첨자 닉네임/순위를 볼 수 있고, 기프티콘 이미지는 **해당 순위 당첨자 본인(같은 익명 uid)** 만 볼 수 있습니다.
+5. **종료 전에는 결과가 보이지 않습니다.** 참가자는 종료 전까지 자기 전적만 볼 수 있고, 순위·다른 사람의 전적·당첨 여부는 서버(RLS)에서 막혀 있어 API로도 조회할 수 없습니다. 게임이 종료되면 한꺼번에 공개됩니다.
+6. 결과 페이지에서는 누구나 당첨자 닉네임/순위를 볼 수 있고, 기프티콘 이미지는 **해당 순위 당첨자 본인(같은 익명 uid)** 만 볼 수 있습니다.
 
 ### 모호해서 제가 정한 규칙
 | 상황 | 정한 규칙 |
 |---|---|
+| 게임이 끝나는 시점 | ① 생성자가 "게임 종료"를 누르거나 ② **최대 참가 인원**(생성 시 선택 설정, 1~100명)이 모두 입장하고 **전원이 R판을 끝내면 자동 종료**됩니다. 최대 인원을 정하지 않으면 자동 종료는 없습니다. (참가 인원이 미정이면 "전원 완주"를 판단할 수 없어, 첫 사람이 끝내는 순간 종료되는 사고를 막기 위함) |
+| 정원이 찬 게임 | 새로운 사람은 입장할 수 없고(`GAME_FULL`), 이미 참가한 사람은 다시 들어와 이어서 할 수 있습니다. |
+| 생성자의 현황 | 관리 링크(토큰)로는 종료 전에도 전체 참가자·순위를 볼 수 있습니다. |
+| 참가자 수 | 종료 전에도 "참가 N명"은 모두에게 보입니다(전적은 아님). |
 | 승률 비교 | 한 게임 안에서 R은 모두 같으므로 `wins`가 같으면 승률이 같습니다. 서버는 `wins / R` 로 정렬합니다. |
 | 0승이어도 R판을 끝냈다면? | 순위에 들어가며, 당첨 인원이 남으면 당첨됩니다(최소 승수 조건 없음). |
 | 종료 시 완주자가 N명보다 적으면? | 있는 만큼만 당첨됩니다. (결과 화면에 "당첨자 없음"도 표시) |
@@ -45,6 +50,7 @@ supabase/migrations/
   20260101000100_functions.sql  RPC (create_game, join_game, play_round, close_game, verify_admin, set_prize_paths)
   20260101000200_storage.sql    비공개 버킷 `prizes` + Storage 정책
   20260101000300_storage_creator_select.sql  생성자 업로드(INSERT…RETURNING)용 SELECT 정책 (open 상태에서만)
+  20260101000400_hide_results_auto_close.sql 종료 전 결과 비공개(RLS), admin_players, max_players 자동 종료
 src/
   lib/       supabase 클라이언트(익명 로그인), RPC 래퍼, 순위 로직, 에러 메시지
   hooks/     세션, 게임/참가자(Realtime) 훅
@@ -57,10 +63,10 @@ tests/       db.test.ts(실제 Postgres 규칙 검증), rank.test.ts
 - 모든 테이블 RLS ON + 클라이언트의 INSERT/UPDATE/DELETE 권한 회수. **쓰기는 `security definer` RPC로만** 가능합니다.
 - `games` 테이블은 클라이언트가 직접 읽을 수 없고, `admin_token_hash`·`creator_uid`를 뺀 뷰 `games_public`만 공개합니다.
 - `admin_token`은 서버에서 랜덤 생성(24바이트) 후 **SHA-256 해시만 저장**합니다. 토큰은 생성 응답에서 단 한 번만 내려갑니다.
-- `players`, `winners`는 공개 읽기(닉네임·전적). `rounds`는 본인 것만 읽을 수 있습니다.
+- `players`는 **종료 전에는 본인 행만**, 종료 후에는 공개 읽기입니다. 생성자는 `admin_players(토큰)` RPC로 전체를 봅니다. `winners`는 종료 때 생성되므로 그전엔 비어 있고, `rounds`는 본인 것만 읽을 수 있습니다.
 - 기프티콘 이미지: 비공개 버킷. 업로드는 게임 생성자(uid)만, 읽기는 `winners`에 `(game_id, prize_path, uid = 나)`가 있을 때만 허용됩니다. 클라이언트는 `createSignedUrl`(10분)로 엽니다.
 - `service_role` 키는 프론트에 쓰지 않습니다. `anon` 키만 사용합니다.
-- 참고: `players.uid`/`winners.uid`가 공개 읽기이므로 익명 uid 값은 노출됩니다. uid만으로는 다른 사람으로 행동할 수 없습니다(JWT 필요).
+- 참고: 종료 후에는 `players.uid`/`winners.uid`가 공개 읽기이므로 익명 uid 값이 노출됩니다. uid만으로는 다른 사람으로 행동할 수 없습니다(JWT 필요).
 
 ---
 
@@ -82,6 +88,7 @@ tests/       db.test.ts(실제 Postgres 규칙 검증), rank.test.ts
 2. `supabase/migrations/20260101000100_functions.sql`
 3. `supabase/migrations/20260101000200_storage.sql`
 4. `supabase/migrations/20260101000300_storage_creator_select.sql`
+5. `supabase/migrations/20260101000400_hide_results_auto_close.sql` (종료 전 결과 비공개 + 최대 인원 자동 종료)
 
 (Supabase CLI를 쓴다면 `supabase link --project-ref <ref>` 후 `supabase db push` 로 한 번에 적용할 수도 있습니다.)
 
@@ -139,6 +146,7 @@ npm test          # vitest
 npm run typecheck
 ```
 - `tests/db.test.ts` — **PGlite(WASM 실제 Postgres)에 `supabase/migrations/*.sql`을 그대로 적용**해 DB 규칙을 검증합니다. (Supabase의 `auth.uid()`, 역할, storage 스키마는 최소한으로 흉내 냄)
+  - **종료 전 결과 비공개**(내 행만 조회), 종료 후 공개, 관리자 토큰 조회, **최대 인원 자동 종료**(정원 미달·미설정 시 종료 안 됨), 정원 초과 입장 거부
   - 클라이언트 직접 쓰기 차단(RLS/권한), `admin_token_hash` 비노출, 토큰은 해시로만 저장
   - 입력 검증, 닉네임 규칙, uid당 1명
   - `play_round`: 서버 판정이 규칙과 일치, 비김은 판수 제외, **R판에서 정확히 종료 / 초과 호출 거부**

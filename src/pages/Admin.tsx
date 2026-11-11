@@ -6,7 +6,7 @@ import { CopyField } from '../components/CopyField'
 import { Leaderboard } from '../components/Leaderboard'
 import { Modal } from '../components/Modal'
 import { ErrorView, Loading, NotFound, ConfigMissing } from '../components/States'
-import { useGame, usePlayers } from '../hooks/useGame'
+import { useAdminPlayers, useGame } from '../hooks/useGame'
 import { useSession } from '../hooks/useSession'
 import { absolute, adminPath, getAdminToken, saveAdminToken } from '../lib/adminStore'
 import { closeGame, verifyAdmin } from '../lib/api'
@@ -20,8 +20,8 @@ export default function Admin() {
   const { hash } = useLocation()
   const { uid, loading: sessionLoading } = useSession()
   const { game, loading, error, notFound, reload, refresh } = useGame(id)
-  const { players } = usePlayers(id, Boolean(game))
   const [auth, setAuth] = useState<Auth>({ state: 'checking' })
+  const players = useAdminPlayers(id, auth.state === 'ok' ? auth.token : null)
   const [confirm, setConfirm] = useState(false)
   const [closing, setClosing] = useState(false)
   const [closeError, setCloseError] = useState<string | null>(null)
@@ -96,7 +96,7 @@ export default function Admin() {
       <div className="grid gap-6">
         <div className="grid grid-cols-3 gap-3 text-center">
           {[
-            ['참가자', players.length],
+            [game.max_players ? `참가자 (최대 ${game.max_players})` : '참가자', players.length],
             ['완주', finished],
             ['당첨', game.winner_count],
           ].map(([l, v]) => (
@@ -125,11 +125,20 @@ export default function Admin() {
             <LinkButton to={`/g/${game.id}/result`} variant="royal" block>결과 보기</LinkButton>
           </Card>
         ) : (
-          <Button variant="danger" block onClick={() => setConfirm(true)}>🏁 게임 종료하기</Button>
+          <div className="grid gap-2">
+            <Button variant="danger" block onClick={() => setConfirm(true)}>🏁 게임 종료하기</Button>
+            <p className="m-0 text-center text-sm text-ice/60">
+              {game.max_players
+                ? `${game.max_players}명이 모두 입장해 전원이 끝내면 자동으로 종료돼요.`
+                : '직접 종료하기 전까지 계속 참가를 받아요.'}{' '}
+              참가자에게는 종료 전까지 순위가 보이지 않아요.
+            </p>
+          </div>
         )}
 
         <Card>
-          <h2 className="m-0 mb-3 text-xl text-white">🏅 실시간 순위</h2>
+          <h2 className="m-0 mb-1 text-xl text-white">🏅 실시간 순위</h2>
+          <p className="m-0 mb-3 text-sm text-gold">🔒 관리자만 볼 수 있어요. 참가자에게는 종료 후 공개돼요.</p>
           <Leaderboard players={players} rounds={game.rounds_per_player} winnerCount={game.winner_count} />
         </Card>
 

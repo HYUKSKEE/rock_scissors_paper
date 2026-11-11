@@ -64,6 +64,8 @@ export default function Create() {
   const [title, setTitle] = useState('')
   const [winners, setWinners] = useState(3)
   const [rounds, setRounds] = useState(5)
+  const [limitPlayers, setLimitPlayers] = useState(false)
+  const [maxPlayers, setMaxPlayers] = useState(10)
   const [files, setFiles] = useState<(File | null)[]>(Array(10).fill(null))
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -95,7 +97,7 @@ export default function Create() {
     setError(null)
     setBusy('게임 만드는 중…')
     try {
-      const r = await createGame(title.trim(), winners, rounds)
+      const r = await createGame(title.trim(), winners, rounds, limitPlayers ? maxPlayers : null)
       const c = { gameId: r.game_id, token: r.admin_token }
       saveAdminToken(c.gameId, c.token, title.trim())
       setCreated(c)
@@ -165,6 +167,20 @@ export default function Create() {
           </div>
           <Stepper label="당첨 인원" value={winners} min={1} max={10} unit="명" onChange={setWinners} />
           <Stepper label="1인당 판수 (비기면 제외)" value={rounds} min={3} max={10} unit="판" onChange={setRounds} />
+          <div className="grid gap-3">
+            <label className="flex cursor-pointer items-center justify-between gap-3 text-ice">
+              <span>참가 인원 제한 <span className="text-sm text-ice/60">(선택)</span></span>
+              <input type="checkbox" className="size-6 accent-sky" checked={limitPlayers} onChange={(e) => setLimitPlayers(e.target.checked)} />
+            </label>
+            {limitPlayers ? (
+              <>
+                <Stepper label="최대 참가 인원" value={maxPlayers} min={1} max={100} unit="명" onChange={setMaxPlayers} />
+                <p className="m-0 text-sm text-ice/60">이 인원이 모두 입장하고 전원이 끝내면 <b>게임이 자동 종료</b>되고 결과가 공개돼요. 그 전에는 내가 직접 종료할 수도 있어요.</p>
+              </>
+            ) : (
+              <p className="m-0 text-sm text-ice/60">제한하지 않으면 내가 직접 종료할 때까지 계속 받아요. 결과는 종료 후에 공개돼요.</p>
+            )}
+          </div>
         </Card>
 
         <Card>

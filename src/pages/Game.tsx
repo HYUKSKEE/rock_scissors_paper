@@ -3,14 +3,13 @@ import { Navigate, useParams } from 'react-router-dom'
 import { Layout, Card, Title } from '../components/Layout'
 import { Button, LinkButton } from '../components/Button'
 import { HandStage } from '../components/Hand3D'
-import { Leaderboard } from '../components/Leaderboard'
 import { ErrorView, Loading, NotFound, ConfigMissing } from '../components/States'
 import { useGame, usePlayers } from '../hooks/useGame'
 import { useSession } from '../hooks/useSession'
 import { joinGame, playRound, type Player, type RoundOutcome } from '../lib/api'
 import { fireConfetti } from '../lib/confetti'
 import { toAppError } from '../lib/errors'
-import { rankPlayers, winRate } from '../lib/rank'
+import { winRate } from '../lib/rank'
 import { CHOICES, CHOICE_EMOJI, CHOICE_LABEL, RESULT_LABEL, type Choice } from '../lib/rps'
 import { isConfigured } from '../lib/supabase'
 
@@ -53,7 +52,7 @@ function JoinForm({ gameId, onJoined }: { gameId: string; onJoined: (p: Player) 
   )
 }
 
-function PlayArea({ gameId, rounds, me, onRecord }: { gameId: string; rounds: number; me: Player; onRecord: (o: RoundOutcome) => void }) {
+function PlayArea({ gameId, rounds, me, closed, onRecord }: { gameId: string; rounds: number; me: Player; closed: boolean; onRecord: (o: RoundOutcome) => void }) {
   const [phase, setPhase] = useState<Phase>('pick')
   const [mine, setMine] = useState<Choice>('rock')
   const [cpu, setCpu] = useState<Choice>('rock')
@@ -141,6 +140,15 @@ function PlayArea({ gameId, rounds, me, onRecord }: { gameId: string; rounds: nu
             <div className="mt-2 grid gap-1">
               <p className="m-0 text-2xl text-white">🎉 모든 판을 끝냈어요!</p>
               <p className="m-0 text-ice/80">최종 {record.wins}승 {losses}패 · 승률 {Math.round(winRate(record.wins, rounds) * 100)}%</p>
+              {closed ? (
+                <div className="mt-4">
+                  <LinkButton to={`/g/${gameId}/result`} block>🎊 결과 보기</LinkButton>
+                </div>
+              ) : (
+                <p className="mt-3 mb-0 rounded-2xl bg-navy/70 p-3 text-sm text-ice/80">
+                  순위와 당첨 결과는 <b>게임이 끝나면</b> 발표돼요.<br />이 화면에서 기다리면 자동으로 알려드려요.
+                </p>
+              )}
             </div>
           )
         ) : phase === 'reveal' ? (
@@ -167,6 +175,8 @@ export default function GamePage() {
   const { players, reload: reloadPlayers } = usePlayers(id, Boolean(game))
   const [joined, setJoined] = useState<Player | null>(null)
   const [lastOutcome, setLastOutcome] = useState<RoundOutcome | null>(null)
+  // 마지막 판 연출을 보는 동안에는 게임이 끝나도 결과 페이지로 자동 이동하지 않는다.
+  const [holdRedirect, setHoldRedirect] = useState(false)
 
   const me = useMemo(() => players.find((p) => p.uid === uid) ?? joined, [players, uid, joined])
   const prevFinished = useRef(false)
@@ -183,40 +193,37 @@ export default function GamePage() {
   if (loading || sessionLoading) return <Layout><Loading label="게임 불러오는 중…" /></Layout>
   if (error) return <Layout><ErrorView error={error} onRetry={reload} /></Layout>
   if (notFound || !game) return <Layout><NotFound /></Layout>
-  if (game.status === 'closed') return <Navigate to={`/g/${game.id}/result`} replace />
+  if (game.status === 'closed' && !holdRedirect) return <Navigate to={`/g/${game.id}/result`} replace />
 
   const rounds = game.rounds_per_player
-  const myRank = me ? rankPlayers(players, rounds).find((p) => p.id === me.id)?.rank : undefined
 
   return (
     <Layout>
-      <Title sub={`${rounds}판 · 상위 ${game.winner_count}명 당첨 · 참가 ${players.length}명`}>{game.title}</Title>
+      <Title sub={`${rounds}판 · 상위 ${game.winner_count}명 당첨 · 참가 ${game.player_count}${game.max_players ? `/${game.max_players}` : ''}명`}>{game.title}</Title>
 
       <div className="grid gap-6">
-        {!me ? (
+        {!me && game.max_players && game.player_count >= game.max_players ? (
+          <Card className="text-center">
+            <div className="mb-2 text-5xl">🈵</div>
+            <p className="m-0 text-xl text-white">참가 인원이 가득 찼어요</p>
+            <p className="m-0 mt-1 text-ice/70">아쉽지만 이번 게임은 참여할 수 없어요.</p>
+          </Card>
+        ) : !me ? (
           <JoinForm gameId={game.id} onJoined={(p) => { setJoined(p); reloadPlayers() }} />
         ) : (
           <PlayArea
             gameId={game.id}
             rounds={rounds}
             me={me}
-            onRecord={(o) => setLastOutcome(o)}
+            closed={game.status === 'closed' || Boolean(lastOutcome?.game_closed)}
+            onRecord={(o) => {
+              setLastOutcome(o)
+              if (o.finished) setHoldRedirect(true)
+            }}
           />
         )}
 
-        {me?.finished || lastOutcome?.finished ? (
-          <p className="m-0 text-center text-lg text-white">
-            {myRank ? (myRank <= game.winner_count ? `🏆 현재 ${myRank}위! 당첨권이에요` : `현재 ${myRank}위예요. 당첨권은 ${game.winner_count}위까지!`) : '순위를 계산하는 중…'}
-          </p>
-        ) : null}
-
-        <Card>
-          <h2 className="m-0 mb-3 text-xl text-white">🏅 실시간 순위</h2>
-          <Leaderboard players={players} rounds={rounds} winnerCount={game.winner_count} meUid={uid} />
-          <p className="mt-3 mb-0 text-center text-xs text-ice/50">승률 순 · 동률이면 먼저 참여한 사람이 앞서요 · 모든 판을 끝낸 사람만 순위에 올라요</p>
-        </Card>
-
-        <LinkButton to={`/g/${game.id}/result`} variant="ghost" block>결과 페이지 보기</LinkButton>
+        {me && <LinkButton to={`/g/${game.id}/result`} variant="ghost" block>결과 페이지 (종료 후 공개)</LinkButton>}
       </div>
     </Layout>
   )

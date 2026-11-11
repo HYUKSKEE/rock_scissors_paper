@@ -50,8 +50,8 @@ async function asErr(uid: string, sql: string, params: any[] = []): Promise<stri
   throw new Error('expected error but succeeded: ' + sql)
 }
 
-async function newGame(opts: { winners?: number; rounds?: number } = {}) {
-  const [r] = await as(CREATOR, 'select public.create_game($1,$2,$3) as r', ['테스트 게임', opts.winners ?? 2, opts.rounds ?? 5])
+async function newGame(opts: { winners?: number; rounds?: number; max?: number } = {}) {
+  const [r] = await as(CREATOR, 'select public.create_game($1,$2,$3,$4) as r', ['테스트 게임', opts.winners ?? 2, opts.rounds ?? 5, opts.max ?? null])
   return r.r as { game_id: string; admin_token: string }
 }
 async function join(game: string, uid: string, nick: string) {
@@ -255,6 +255,97 @@ describe('close_game: 순위 정렬과 당첨자 선정', () => {
     expect(await asErr(B, 'select * from public.join_game($1::uuid,$2::text)', [g.game_id, 'late'])).toMatch(/GAME_CLOSED/)
     expect(await asErr(A, 'select public.play_round($1,$2)', [g.game_id, 'rock'])).toMatch(/GAME_CLOSED/)
     expect(p.id).toBeTruthy()
+  })
+})
+
+describe('종료 전 결과 비공개', () => {
+  it('종료 전에는 내 기록만 보이고, 다른 사람의 전적/순위는 보이지 않는다', async () => {
+    const g = await newGame({ winners: 1 })
+    const pa = await join(g.game_id, A, 'a')
+    const pb = await join(g.game_id, B, 'b')
+    await setRecord(pa.id, 5, true)
+    await setRecord(pb.id, 2, true)
+    const q = (uid: string) => as<any>(uid, 'select nickname, wins from public.players where game_id=$1 order by nickname', [g.game_id])
+    expect(await q(A)).toEqual([{ nickname: 'a', wins: 5 }])
+    expect(await q(B)).toEqual([{ nickname: 'b', wins: 2 }])
+    expect(await q(C)).toEqual([])
+    // 참가자 수는 뷰로만 공개(전적은 아님)
+    expect((await as<any>(C, 'select player_count from public.games_public where id=$1', [g.game_id]))[0].player_count).toBe(2)
+    expect(await as(A, 'select * from public.winners where game_id=$1', [g.game_id])).toEqual([])
+    // 직접 호출 불가
+    expect(await asErr(A, 'select public.finalize_game($1)', [g.game_id])).toMatch(/permission denied/)
+  })
+
+  it('종료되면 모든 참가자의 전적이 공개된다', async () => {
+    const g = await newGame({ winners: 1 })
+    const pa = await join(g.game_id, A, 'a')
+    await join(g.game_id, B, 'b')
+    await setRecord(pa.id, 4, true)
+    await as(CREATOR, 'select public.close_game($1,$2)', [g.game_id, g.admin_token])
+    expect(await as(C, 'select nickname from public.players where game_id=$1 order by nickname', [g.game_id])).toEqual([{ nickname: 'a' }, { nickname: 'b' }])
+    expect(await as(C, 'select nickname from public.winners where game_id=$1', [g.game_id])).toEqual([{ nickname: 'a' }])
+  })
+
+  it('생성자는 관리 토큰으로만 전체 현황을 볼 수 있다', async () => {
+    const g = await newGame()
+    const pa = await join(g.game_id, A, 'a')
+    await join(g.game_id, B, 'b')
+    await setRecord(pa.id, 3, true)
+    expect(await asErr(A, 'select * from public.admin_players($1,$2)', [g.game_id, 'wrong'])).toMatch(/INVALID_TOKEN/)
+    const rows = await as<any>(U(9), 'select nickname, wins from public.admin_players($1,$2) order by nickname', [g.game_id, g.admin_token])
+    expect(rows).toEqual([{ nickname: 'a', wins: 3 }, { nickname: 'b', wins: 0 }])
+  })
+})
+
+describe('최대 참가 인원 / 자동 종료', () => {
+  const status = async (g: string) => (await db.query<any>('select status from public.games where id=$1', [g])).rows[0].status
+  /** 한 명이 R판을 끝까지 진행 (비김은 반복) */
+  async function finish(game: string, uid: string) {
+    let r: any
+    do { [{ r }] = await as(uid, 'select public.play_round($1,$2) as r', [game, 'rock']) } while (!r.finished)
+    return r
+  }
+
+  it('정원이 차면 입장 불가, 이미 참가한 사람은 다시 들어올 수 있다', async () => {
+    const g = await newGame({ max: 2 })
+    await join(g.game_id, A, 'a')
+    await join(g.game_id, B, 'b')
+    expect(await asErr(C, 'select * from public.join_game($1::uuid,$2::text)', [g.game_id, 'c'])).toMatch(/GAME_FULL/)
+    expect((await join(g.game_id, A, 'a')).nickname).toBe('a')
+  })
+
+  it('정원이 모두 입장하고 전원이 R판을 끝내면 자동 종료되어 당첨자가 확정된다', async () => {
+    const g = await newGame({ max: 2, winners: 1, rounds: 3 })
+    await join(g.game_id, A, 'a')
+    await join(g.game_id, B, 'b')
+    const ra = await finish(g.game_id, A)
+    expect(ra.game_closed).toBe(false)           // B 가 아직 안 끝났다
+    expect(await status(g.game_id)).toBe('open')
+    const rb = await finish(g.game_id, B)
+    expect(rb.game_closed).toBe(true)
+    expect(await status(g.game_id)).toBe('closed')
+    const { rows } = await db.query<any>('select count(*)::int c from public.winners where game_id=$1', [g.game_id])
+    expect(rows[0].c).toBe(1)
+  })
+
+  it('정원이 다 차지 않았으면 먼저 끝낸 사람이 있어도 종료되지 않는다', async () => {
+    const g = await newGame({ max: 3, rounds: 3 })
+    await join(g.game_id, A, 'a')
+    const r = await finish(g.game_id, A)
+    expect(r.game_closed).toBe(false)
+    expect(await status(g.game_id)).toBe('open')
+  })
+
+  it('최대 인원을 정하지 않으면 자동 종료되지 않는다', async () => {
+    const g = await newGame({ rounds: 3 })
+    await join(g.game_id, A, 'a')
+    expect((await finish(g.game_id, A)).game_closed).toBe(false)
+    expect(await status(g.game_id)).toBe('open')
+  })
+
+  it('max_players 범위 검증', async () => {
+    expect(await asErr(CREATOR, `select public.create_game('x',1,5,0)`)).toMatch(/INVALID_INPUT/)
+    expect(await asErr(CREATOR, `select public.create_game('x',1,5,101)`)).toMatch(/INVALID_INPUT/)
   })
 })
 
